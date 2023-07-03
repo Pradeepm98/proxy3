@@ -1,18 +1,20 @@
 import java.io.BufferedInputStream
 import java.io.BufferedOutputStream
 import java.io.IOException
+import java.net.InetSocketAddress
 import java.net.ServerSocket
 import java.net.Socket
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
 
-class ProxyServer(private val port: Int) {
+class ProxyServer(private val ipAddress: String, private val port: Int) {
 
     private val executor: ExecutorService = Executors.newCachedThreadPool()
 
     fun start() {
-        val serverSocket = ServerSocket(port)
-        println("Proxy server listening on port $port...")
+        val serverSocket = ServerSocket()
+        serverSocket.bind(InetSocketAddress(ipAddress, port))
+        println("Proxy server listening on $ipAddress:$port...")
 
         while (true) {
             val clientSocket = serverSocket.accept()
@@ -66,6 +68,6 @@ class ProxyServer(private val port: Int) {
 }
 
 fun main() {
-    val proxyServer = ProxyServer(12345)
+    val proxyServer = ProxyServer("0.0.0.0", 12345)
     proxyServer.start()
 }
