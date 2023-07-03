@@ -1,4 +1,3 @@
-import argparse
 import http.client
 import http.server
 import select
@@ -11,6 +10,7 @@ import urllib.parse
 from http.client import HTTPMessage
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from socketserver import ThreadingMixIn
+import argparse
 
 RED = 31
 GREEN = 32
@@ -30,7 +30,6 @@ class ThreadingHTTPServer(ThreadingMixIn, HTTPServer):
     daemon_threads = True
 
     def handle_error(self, request, client_address):
-        # suppress socket/ssl related errors
         cls, e = sys.exc_info()[:2]
         if cls is socket.error or cls is ssl.SSLError:
             pass
@@ -48,7 +47,6 @@ class ProxyRequestHandler(BaseHTTPRequestHandler):
         super().__init__(*args, **kwargs)
 
     def log_error(self, format, *args):
-        # suppress "Request timed out: timeout('timed out',)"
         if isinstance(args[0], socket.timeout):
             return
 
@@ -73,7 +71,6 @@ class ProxyRequestHandler(BaseHTTPRequestHandler):
 
         conns = [self.connection, s]
         self.close_connection = False
-        print("address", address)
         while not self.close_connection:
             rlist, wlist, xlist = select.select(conns, [], conns, self.timeout)
             if xlist or not rlist:
