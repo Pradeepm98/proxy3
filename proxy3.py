@@ -64,115 +64,12 @@ class ProxyRequestHandler(BaseHTTPRequestHandler):
 
     def do_CONNECT(self):
         host, _ = self.path.split(":", 1)
-        # if args.userpass:
-        #     auth = self.headers.get("Proxy-Authorization")
-        #     print("Proxy-Authorization: ", dict(self.headers.items()))
-        #     if not auth:
-        #         print("Client does not provide userpass as '%s'" % args.userpass)
-        #         self.send_header("Proxy-Authenticate", 'Basic realm="%s"' % host)
-        #         self.send_error(407)
-        #         return
-        #     client_userpass = base64.b64decode(auth[6:])
-        #     if args.userpass != client_userpass:
-        #         print("Client userpass '%s' != '%s'" % (client_userpass, args.userpass))
-        #         self.send_error(403)
-        #         return
 
-        # print("args.domain", args.domain, "host", host, "equal", args.domain == host)
-        if (
-            os.path.isfile(args.ca_key)
-            and os.path.isfile(args.ca_cert)
-            and os.path.isfile(args.cert_key)
-            and os.path.isdir(args.cert_dir)
-            and (args.domain == "*" or args.domain == host)
-        ):
-            print("HTTPS mitm enabled, Intercepting...")
-            self.connect_intercept()
-        else:
-            print("HTTPS relay only, NOT Intercepting...")
-            self.connect_relay()
-
-    def connect_intercept(self):
-        hostname = self.path.split(":")[0]
-        certpath = os.path.join(args.cert_dir, hostname + ".pem")
-        confpath = os.path.join(args.cert_dir, hostname + ".conf")
-
-        with self.lock:
-            # stupid requirements from Apple: https://support.apple.com/en-us/HT210176
-            if not os.path.isfile(certpath):
-                if re.match(r"^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$", hostname):
-                    category = "IP"
-                else:
-                    category = "DNS"
-                with open(confpath, "w") as f:
-                    f.write(
-                        "subjectAltName=%s:%s\nextendedKeyUsage=serverAuth\n"
-                        % (category, hostname)
-                    )
-                epoch = "%d" % (time.time() * 1000)
-                # CSR
-                p1 = Popen(
-                    [
-                        "openssl",
-                        "req",
-                        "-sha256",
-                        "-new",
-                        "-key",
-                        args.cert_key,
-                        "-subj",
-                        "/CN=%s" % hostname,
-                        "-addext",
-                        "subjectAltName=DNS:%s" % hostname,
-                    ],
-                    stdout=PIPE,
-                )
-                # Sign
-                p2 = Popen(
-                    [
-                        "openssl",
-                        "x509",
-                        "-req",
-                        "-sha256",
-                        "-days",
-                        "365",
-                        "-CA",
-                        args.ca_cert,
-                        "-CAkey",
-                        args.ca_key,
-                        "-set_serial",
-                        epoch,
-                        "-out",
-                        certpath,
-                        "-extfile",
-                        confpath,
-                    ],
-                    stdin=p1.stdout,
-                    stderr=PIPE,
-                )
-                p2.communicate()
-
-        self.send_response(200, "Connection Established")
-        self.end_headers()
-
-        context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
-        context.verify_mode = ssl.CERT_NONE
-        # print(args.cert_key)
-        context.load_cert_chain(certpath, args.cert_key)
-        try:
-            self.connection = context.wrap_socket(self.connection, server_side=True)
-        except ssl.SSLEOFError:
-            print("Handshake refused by client, maybe SSL pinning?")
-            return
-        self.rfile = self.connection.makefile("rb", self.rbufsize)
-        self.wfile = self.connection.makefile("wb", self.wbufsize)
-
-        conntype = self.headers.get("Proxy-Connection", "")
-        if self.protocol_version == "HTTP/1.1" and conntype.lower() != "close":
-            self.close_connection = False
-        else:
-            self.close_connection = True
+        print("HTTPS relay only, NOT Intercepting...")
+        self.connect_relay()
 
     def connect_relay(self):
+
         address = self.path.split(":", 1)
         address = (address[0], int(address[1]) or 443)
         try:
@@ -185,6 +82,7 @@ class ProxyRequestHandler(BaseHTTPRequestHandler):
 
         conns = [self.connection, s]
         self.close_connection = False
+        print("address" , address)
         while not self.close_connection:
             rlist, wlist, xlist = select.select(conns, [], conns, self.timeout)
             if xlist or not rlist:
@@ -481,110 +379,21 @@ def print_info(req, req_body, res, res_body):
             print(with_color(GREEN, "==== RESPONSE BODY ====\n%s\n" % res_body_text))
 
 
+
 def main():
     """place holder, no action, but do not delete."""
 
+request_handler = None
 
-parser = argparse.ArgumentParser(formatter_class=argparse.ArgumentDefaultsHelpFormatter)
-parser.add_argument("-b", "--bind", default="localhost", help="Host to bind")
-parser.add_argument("-p", "--port", type=int, default=7777, help="Port to bind")
-parser.add_argument(
-    "-d",
-    "--domain",
-    default="*",
-    help="Domain to intercept, if not set, intercept all.",
-)
-parser.add_argument(
-    "-u",
-    "--userpass",
-    help="Username and password for proxy authentication, format: 'user:pass'",
-)
-parser.add_argument("--timeout", type=int, default=5, help="Timeout")
-parser.add_argument("--ca-key", default="./ca-key.pem", help="CA key file")
-parser.add_argument("--ca-cert", default="./ca-cert.pem", help="CA cert file")
-parser.add_argument("--cert-key", default="./cert-key.pem", help="site cert key file")
-parser.add_argument("--cert-dir", default="./certs", help="Site certs files")
-parser.add_argument(
-    "--request-handler",
-    help="Request handler function, example: foo.bar:handle_request",
-)
-parser.add_argument(
-    "--response-handler",
-    help="Response handler function, example: foo.bar:handle_response",
-)
-parser.add_argument(
-    "--save-handler",
-    help="Save handler function, use 'off' to turn off, example: foo.bar:handle_save",
-)
-parser.add_argument(
-    "--make-certs", action="store_true", help="Create https intercept certs"
-)
-parser.add_argument(
-    "--make-example",
-    action="store_true",
-    help="Create an intercept handlers example python file",
-)
-args = parser.parse_args()
+response_handler = None
 
-if args.make_certs:
-    Popen(["openssl", "genrsa", "-out", args.ca_key, "2048"]).communicate()
-    Popen(
-        [
-            "openssl",
-            "req",
-            "-new",
-            "-x509",
-            "-days",
-            "3650",
-            "-key",
-            args.ca_key,
-            "-sha256",
-            "-out",
-            args.ca_cert,
-            "-subj",
-            "/CN=Proxy3 CA",
-        ]
-    ).communicate()
-    Popen(["openssl", "genrsa", "-out", args.cert_key, "2048"]).communicate()
-    os.makedirs(args.cert_dir, exist_ok=True)
-    for old_cert in glob.glob(os.path.join(args.cert_dir, "*.pem")):
-        os.remove(old_cert)
-    sys.exit(0)
-
-if args.make_example:
-    import shutil
-
-    example_file = os.path.join(os.path.dirname(__file__), "examples/example.py")
-    shutil.copy(example_file, "proxy3_handlers_example.py")
-    sys.exit(0)
-
-if args.request_handler:
-    module, func = args.request_handler.split(":")
-    m = importlib.import_module(module)
-    request_handler = getattr(m, func)
-else:
-    request_handler = None
-if args.response_handler:
-    module, func = args.response_handler.split(":")
-    m = importlib.import_module(module)
-    response_handler = getattr(m, func)
-else:
-    response_handler = None
-if args.save_handler:
-    if args.save_handler == "off":
-        save_handler = None
-    else:
-        module, func = args.save_handler.split(":")
-        m = importlib.import_module(module)
-        save_handler = getattr(m, func)
-else:
-    save_handler = print_info
+save_handler = print_info
 
 protocol = "HTTP/1.1"
 http.server.test(
     HandlerClass=ProxyRequestHandler,
     ServerClass=ThreadingHTTPServer,
     protocol=protocol,
-    port=args.port,
-    bind=args.bind,
+    port=12345,
+    bind="0.0.0.0",
 )
