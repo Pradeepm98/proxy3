@@ -6,7 +6,7 @@ import http.client
 import http.server
 import importlib
 import json
-import os
+import osA
 import re
 import select
 import socket
@@ -95,7 +95,7 @@ class ProxyRequestHandler(BaseHTTPRequestHandler):
                     break
                 other.sendall(data)
 
-    """def do_GET(self):
+    def do_GET(self):
         if self.path == "http://proxy3.test/":
             self.send_cacert()
             return
@@ -188,7 +188,7 @@ class ProxyRequestHandler(BaseHTTPRequestHandler):
             res_body_plain = self.decode_content_body(res_body, content_encoding)
             with self.lock:
                 save_handler(req, req_body, res, res_body_plain)
-"""
+
     def relay_streaming(self, res):
         self.send_response_only(res.status, res.reason)
         for k, v in res.headers.items():
